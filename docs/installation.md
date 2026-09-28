@@ -63,6 +63,22 @@ restarting capture. A separately linked Clavis base unit remains Clavis-owned. R
 fish PATH and restart selected processes to return to the installed version; no whole
 fish_user_paths or unit directory is cleared.
 
+## Moving a development checkout or renaming the user
+
+Development overrides use systemd's `%h` for checkouts inside the user's home.
+Checkouts elsewhere use their resolved absolute location. Ownership manifests store
+paths relative to the XDG configuration root; existing absolute development manifests
+are migrated when reconfiguring, with the same allowlist and file fingerprint checks.
+System installation manifests remain tied to their installation root.
+
+Python virtual environments and CMake build caches must be recreated after moving a
+checkout or its parent directory. Preserve the old `.venv` and `native/build` outside
+the checkout if needed, then create `.venv`, run `python -m pip install -e '.[dev]'`
+with its interpreter, and rebuild using `scripts/check.sh`. Regenerate development
+services with the commands above and run `systemctl --user daemon-reload`. Restart
+only the services that should switch to the rebuilt environment; no relogin is needed.
+Do not distribute `.venv`, native build caches, or editable installation metadata.
+
 ## Source install, update and uninstall
 
 ```bash

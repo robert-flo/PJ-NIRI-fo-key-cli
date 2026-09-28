@@ -70,6 +70,23 @@ class OwnedFiles:
         self.data = {"mode": mode, "root": str(root), "files": {}}
         if manifest.exists():
             self.data = json.loads(manifest.read_text())
+            if mode == "development" and self.data.get("mode") == mode:
+                # Only development configuration moves with a user's config root.
+                # Decode legacy absolute names before applying the same allowlist
+                # and fingerprint checks as a normal update.
+                stored_root = Path(self.data["root"])
+                relative = self.data.get("formatVersion") == 2
+                if relative and stored_root != Path("."):
+                    raise ValueError("Invalid development manifest root")
+                if not relative and not stored_root.is_absolute():
+                    raise ValueError("Invalid legacy development manifest root")
+                files = {}
+                for name, fingerprint_value in self.data["files"].items():
+                    part = Path(name) if relative else Path(name).relative_to(stored_root)
+                    if part.is_absolute() or ".." in part.parts:
+                        raise ValueError("Invalid development manifest path")
+                    files[str(root / part)] = fingerprint_value
+                self.data = {**self.data, "root": str(root), "files": files}
             if self.data.get("mode") != mode or self.data.get("root") != str(root):
                 raise ValueError("Installation manifest root/mode mismatch")
             if not set(self.data["files"]) <= {str(p) for p in self.allowed}:
@@ -85,7 +102,18 @@ class OwnedFiles:
             raise ValueError(f"Unknown or modified file; preserved: {path}")
 
     def save(self):
-        atomic(self.path, (json.dumps(self.data, indent=2) + "\n").encode())
+        data = self.data
+        if self.mode == "development":
+            data = {
+                **data,
+                "formatVersion": 2,
+                "root": ".",
+                "files": {
+                    str(Path(name).relative_to(self.root)): value
+                    for name, value in data["files"].items()
+                },
+            }
+        atomic(self.path, (json.dumps(data, indent=2) + "\n").encode())
 
     def write(self, path, data=None, link=None, mode=0o644):
         self.check(path)
@@ -139,12 +167,16 @@ def layout(root):
     return prefix, share, resources
 
 
-def unit_override(key, arguments):
+def unit_override(key, arguments, *, home=None):
     # systemd command quoting (not shell quoting): escape specifiers and env expansion.
+    prefix = ""
+    if home is not None and Path(key).is_relative_to(home):
+        key = Path(key).relative_to(home)
+        prefix = "%h/"
     value = str(key).replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%").replace("$", "$$")
     if any(c in value for c in "\n\r\0"):
         raise ValueError("Invalid unit executable path")
-    return f'[Service]\nExecStart=\nExecStart="{value}" {arguments}\n'.encode()
+    return f'[Service]\nExecStart=\nExecStart="{prefix}{value}" {arguments}\n'.encode()
 
 
 def dev_services(args):
@@ -175,7 +207,7 @@ def dev_services(args):
         base_exists = probe.returncode == 0 and probe.stdout.strip() == "loaded"
         if not base_exists and not paths[0].exists():
             owned.write(paths[0], (BASE / "systemd/user" / UNIT).read_bytes())
-        owned.write(paths[1], unit_override(key, "clipboard watch"))
+        owned.write(paths[1], unit_override(key, "clipboard watch", home=Path.home()))
         if args.clavis_unit:
             source = Path(args.clavis_unit).resolve()
             if source.name != "clavis-shell.service" or not source.is_file():
@@ -184,7 +216,9 @@ def dev_services(args):
             print(
                 f"If the base unit is not installed, run: systemctl --user link {shlex.quote(str(source))}"
             )
-            owned.write(paths[2], unit_override(key, "shell --foreground --no-duplicate"))
+            owned.write(
+                paths[2], unit_override(key, "shell --foreground --no-duplicate", home=Path.home())
+            )
     print(
         "Configuration saved. Run systemctl --user daemon-reload; restart only the services you intend to switch."
     )

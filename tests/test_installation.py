@@ -159,3 +159,58 @@ def test_doctor_distinguishes_invocation_and_path_default(tmp_path, monkeypatch)
     assert result["pythonExecutable"]
     assert result["modulePath"].endswith("key_cli")
     assert result["userUnits"]["clavis-clipboard.service"]["DropInPaths"] == "/user/dev.conf"
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_development_manifest_survives_config_move(tmp_path, legacy):
+    original = tmp_path / "old-config"
+    target = original / "systemd/user/example.conf"
+    manifest = original / "systemd/user/manifest.json"
+    owned = installer.OwnedFiles(manifest, [target], original, "development")
+    owned.write(target, b"original")
+    if legacy:
+        manifest.write_text(json.dumps(owned.data))
+    moved = tmp_path / "new-config"
+    original.rename(moved)
+    target = moved / target.relative_to(original)
+    manifest = moved / manifest.relative_to(original)
+    owned = installer.OwnedFiles(manifest, [target], moved, "development")
+    owned.write(target, b"updated")
+    saved = json.loads(manifest.read_text())
+    assert saved["root"] == "."
+    assert set(saved["files"]) == {"systemd/user/example.conf"}
+    target.write_bytes(b"user edit")
+    with pytest.raises(ValueError):
+        owned.write(target, b"replacement")
+    assert not owned.remove()
+    assert target.read_bytes() == b"user edit"
+    target.write_bytes(b"updated")
+    assert owned.remove()
+    assert not target.exists()
+
+
+@pytest.mark.parametrize("name", ["../outside", "/outside"])
+def test_relative_development_manifest_rejects_escape(tmp_path, name):
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "mode": "development",
+                "formatVersion": 2,
+                "root": ".",
+                "files": {name: {"sha256": "fake"}},
+            }
+        )
+    )
+    with pytest.raises(ValueError):
+        installer.OwnedFiles(manifest, [tmp_path / "entry"], tmp_path, "development")
+
+
+def test_development_unit_uses_home_specifier_and_escapes_literal_names(tmp_path):
+    key = tmp_path / 'source with spaces $d %n "quote"' / ".venv/bin/key"
+    unit = installer.unit_override(key, "clipboard watch", home=tmp_path).decode()
+    assert (
+        'ExecStart="%h/source with spaces $$d %%n \\"quote\\"/.venv/bin/key" clipboard watch'
+        in unit
+    )
+    assert str(tmp_path) not in unit
