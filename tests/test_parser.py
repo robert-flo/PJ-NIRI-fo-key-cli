@@ -65,6 +65,12 @@ def test_clipboard_json_forms_match_qml_commands() -> None:
     assert store.stdin is True
 
 
+def test_clipboard_daemon_needs_no_action() -> None:
+    args = build_parser().parse_args(["clipboard", "--daemon"])
+    assert args.daemon is True
+    assert args.action is None
+
+
 def test_ipc_preserves_argument_array() -> None:
     args = build_parser().parse_args(["ipc", "call", "keystone", "dashboard", "with spaces"])
     assert args.target == "keystone"

@@ -138,7 +138,13 @@ def build_parser() -> argparse.ArgumentParser:
     clipboard_parser = commands.add_parser(
         "clipboard", help="operate on the cliphist clipboard backend"
     )
-    clipboard_commands = clipboard_parser.add_subparsers(dest="action", required=True)
+    clipboard_parser.add_argument(
+        "--daemon",
+        "-d",
+        action="store_true",
+        help="start the clipboard watcher in the background if none is running",
+    )
+    clipboard_commands = clipboard_parser.add_subparsers(dest="action")
     list_parser = clipboard_commands.add_parser("list", help="list clipboard entries")
     list_parser.add_argument(
         "--limit", type=int, default=100, help="maximum entries to return (1–750)"
