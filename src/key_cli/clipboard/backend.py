@@ -14,7 +14,14 @@ from urllib.parse import unquote, urlparse
 
 from . import config
 
-from ..utils.output import DEPENDENCY_FAILURE, GENERAL_FAILURE, Result, error, fail
+from ..utils.output import (
+    DEPENDENCY_FAILURE,
+    GENERAL_FAILURE,
+    USAGE_ERROR,
+    Result,
+    error,
+    fail,
+)
 from ..utils.executable import current_key_executable
 from ..utils.file_types import file_mime, theme_icon
 
@@ -628,7 +635,51 @@ def common_payload(command: str, **values) -> dict:
     }
 
 
+WATCHER_UNIT = "clavis-clipboard.service"
+
+
+def start_daemon(command: str) -> Result:
+    if watcher_running():
+        return Result(
+            0, command, {"started": False, "via": None}, "clipboard watcher already running"
+        )
+    systemctl = executable("systemctl")
+    if systemctl:
+        # Prefer the user unit so systemd stays the single owner of the watcher.
+        known = subprocess.run(
+            [systemctl, "--user", "cat", WATCHER_UNIT], capture_output=True, check=False
+        )
+        if known.returncode == 0:
+            started = subprocess.run(
+                [systemctl, "--user", "start", WATCHER_UNIT], capture_output=True, check=False
+            )
+            if started.returncode == 0:
+                return Result(
+                    0, command, {"started": True, "via": "systemd"}, f"started {WATCHER_UNIT}"
+                )
+    try:
+        subprocess.Popen(
+            [current_key_executable(), "clipboard", "watch"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        return fail(command, GENERAL_FAILURE, "watcher_start_failed", str(exc))
+    return Result(0, command, {"started": True, "via": "process"}, "clipboard watcher started")
+
+
 def run_command(args) -> Result:
+    if args.action is None:
+        if getattr(args, "daemon", False):
+            return start_daemon("clipboard.daemon")
+        return fail(
+            "clipboard",
+            USAGE_ERROR,
+            "clipboard_action_required",
+            "choose a clipboard action or --daemon",
+        )
     command = f"clipboard.{args.action}"
     if args.action == "config":
         return config.run(args.max_items)
