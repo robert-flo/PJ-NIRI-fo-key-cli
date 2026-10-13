@@ -33,7 +33,8 @@ The stable command names currently exposed by JSON responses are:
 - `record.start`, `record.status`, `record.pause`, `record.resume`, `record.stop` and `record.watch`;
 - `audio.start`, `audio.status`, `audio.stop` and `audio.watch`;
 - `clipboard.status`, `clipboard.list`, `clipboard.inspect`, `clipboard.restore`,
-  `clipboard.delete`, `clipboard.clear`, `clipboard.config`, `clipboard.watch` and `clipboard.store`.
+  `clipboard.delete`, `clipboard.clear`, `clipboard.config`, `clipboard.watch`, `clipboard.store`
+  and `clipboard.daemon`.
 
 Recording and audio responses include a versioned state object. Stable state fields include
 `state`, `sessionId`, `pid`, `processStartTicks`, `processStartedAtMs`, `startedAtMs`,
@@ -185,6 +186,15 @@ The watch callback and a subsequent `wl-paste` query are not an atomic snapshot.
 A rapid copy can replace the offer between those operations, even when MIME names
 are unchanged. This adapter does not promise original-offer identity or implement
 its own Wayland data-control client to eliminate that race.
+
+## Clipboard daemon
+
+`key clipboard --daemon` returns `clipboard.daemon` and ensures one watcher is running.
+If a watcher already holds the lock it does nothing (`"started":false,"via":null`).
+Otherwise it starts the `clavis-clipboard.service` user unit when systemd knows it
+(`"via":"systemd"`), and falls back to a detached `key clipboard watch` (`"via":"process"`).
+A failed fallback spawn returns exit 1 with `watcher_start_failed`. `key clipboard`
+without an action or `--daemon` returns exit 2 with `clipboard_action_required`.
 
 ## Exit codes
 
