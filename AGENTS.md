@@ -64,3 +64,8 @@ permissions or user services. Installer tests use temporary roots and mock syste
 
 `ruff format` is the formatter; do not add Black, isort or flake8. Do not add mypy,
 pyright, coverage thresholds or a large pre-commit framework in routine cleanup.
+
+## Upstream policy
+
+This fork's integration branch is `personal`. Never open pull requests to `StatIndet/key-cli`:
+upstream does not accept AI-assisted pull requests. Changes land here through pull requests into `personal`.
